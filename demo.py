@@ -4,9 +4,18 @@ import pandas as pd
 from datetime import datetime
 import os
 
-st.set_page_config(page_title="FaceABC Ethical Facial Recognition", layout="wide")
+# ---------------------------------------------------------
+# CONFIGURATION
+# ---------------------------------------------------------
+st.set_page_config(page_title="FaceABC – Ethical Facial Recognition", layout="wide")
 
-# ---- Session Setup ----
+THRESHOLD = 0.85  # confidence threshold for automatic approval
+base_path = os.path.dirname(__file__)
+db_img = os.path.join(base_path, "static", "database.png")
+
+# ---------------------------------------------------------
+# SESSION STATE SETUP
+# ---------------------------------------------------------
 if "logs" not in st.session_state:
     st.session_state.logs = []
 if "complaints" not in st.session_state:
@@ -14,14 +23,13 @@ if "complaints" not in st.session_state:
 if "incident_counter" not in st.session_state:
     st.session_state.incident_counter = 1000
 if "customer_image" not in st.session_state:
-    st.session_state.customer_image = None  # store uploaded face
+    st.session_state.customer_image = None
+if "page" not in st.session_state:
+    st.session_state.page = "Camera Dashboard"
 
-THRESHOLD = 0.85
-base_path = os.path.dirname(__file__)
-db_img = os.path.join(base_path, "static", "database.png")
-
-
-# ---- Helper Functions ----
+# ---------------------------------------------------------
+# HELPER FUNCTIONS
+# ---------------------------------------------------------
 def generate_incident_id():
     st.session_state.incident_counter += 1
     return f"INC-{st.session_state.incident_counter}"
@@ -49,77 +57,83 @@ def add_complaint(user, contact, incident_id, text):
         "Status": "Pending"
     })
 
-
-# ---- Sidebar Navigation ----
-st.sidebar.title("📋 FaceABC Menu")
+# ---------------------------------------------------------
+# SIDEBAR NAVIGATION
+# ---------------------------------------------------------
 page = st.sidebar.radio("Go to:", [
     "Camera Dashboard",
-    "Alarm & Review",
     "Human Review Board",
     "System Logs",
     "User Complaint Portal",
     "Complaint Review"
-])
-st.sidebar.markdown("---")
-st.sidebar.info("Logged in as: **Staff - Mike**")
+], key="sidebar_nav")
 
-# ---- PAGE 1: Camera Dashboard ----
+st.sidebar.markdown("---")
+st.sidebar.info("Logged in as: **Staff – Mike**")
+
+# ---------------------------------------------------------
+# PAGE 1 – CAMERA DASHBOARD
+# ---------------------------------------------------------
 if page == "Camera Dashboard":
     st.title("🎥 Camera One – Live Feed Simulation")
-    uploaded_file = st.file_uploader("Upload camera frame:", type=["png", "jpg", "jpeg"])
+    st.markdown("Upload an image to simulate the live camera feed.")
+
+    uploaded_file = st.file_uploader("Upload camera frame:", type=["png", "jpg", "jpeg"], key="camera_upload")
 
     if uploaded_file:
-        # Store uploaded file so we can use it later
         st.session_state.customer_image = uploaded_file
         st.image(uploaded_file, caption="Live Camera Feed", use_container_width=True)
 
+        # Random confidence score to simulate detection
         confidence = random.uniform(0.2, 0.99)
         st.metric("AI Confidence Score", f"{confidence:.2f}")
 
+        # Visual color bar indicator
+        if confidence >= 0.85:
+            st.progress(confidence)
+            st.success("✅ System confident with match.")
+        elif confidence >= 0.5:
+            st.progress(confidence)
+            st.warning("⚠️ Medium confidence – human verification suggested.")
+        else:
+            st.progress(confidence)
+            st.error("❌ Low confidence – requires immediate human review.")
+
+        # Control buttons
         col1, col2 = st.columns(2)
         with col1:
-            if st.button("▶️ Simulate Recognition"):
-                if confidence >= THRESHOLD:
-                    st.warning("⚠️ High Confidence Detected! Alarm Triggered Automatically.")
-                    incident_id = add_log("Potential Match", "Auto Alarm Raised", confidence)
-                    st.session_state["alarm_confidence"] = confidence
-                    st.session_state["current_incident"] = incident_id
-                    st.info(f"Incident recorded: {incident_id}")
-                else:
-                    st.success("✅ Low confidence - No action taken. Data deleted for privacy.")
-                    add_log("Scan Complete", "No Action", confidence)
-        with col2:
-            if st.button("🚨 Raise Alarm Manually (Testing)"):
-                confidence = 0.87
-                incident_id = add_log("Manual Alarm Triggered", "Testing Alarm", confidence)
-                st.session_state["alarm_confidence"] = confidence
+            if st.button("▶️ Run Face Check", key="btn_run_check"):
+                incident_id = generate_incident_id()
                 st.session_state["current_incident"] = incident_id
-                st.warning(f"Manual alarm triggered! Incident ID: {incident_id}")
+                st.session_state["alarm_confidence"] = confidence
 
+                if confidence < THRESHOLD:
+                    st.warning(f"⚠️ Confidence {confidence:.2f} < {THRESHOLD}. Redirecting for human review.")
+                    add_log("Uncertain Match", "Human Review Required", confidence, incident_id=incident_id)
+                    st.session_state.page = "Human Review Board"
+                    st.rerun()
+                else:
+                    st.success(f"✅ Confidence {confidence:.2f} ≥ {THRESHOLD}. Logged automatically.")
+                    add_log("Match Logged", "High Confidence", confidence, incident_id=incident_id)
+
+        with col2:
+            if st.button("🚨 Force Audit (Testing)", key="btn_force"):
+                confidence = 0.45
+                incident_id = generate_incident_id()
+                st.session_state["current_incident"] = incident_id
+                st.session_state["alarm_confidence"] = confidence
+                add_log("Manual Trigger", "Forced Human Review", confidence, incident_id=incident_id)
+                st.session_state.page = "Human Review Board"
+                st.rerun()
     else:
-        st.info("Please upload a camera image to begin.")
-    st.markdown("---")
-    st.write(f"📊 Total logs recorded: {len(st.session_state.logs)}")
+        st.info("Please upload a camera image to start the recognition simulation.")
 
-# ---- PAGE 2: Alarm & Review ----
-elif page == "Alarm & Review":
-    st.title("🚨 Active Alarms")
-    if "alarm_confidence" in st.session_state:
-        confidence = st.session_state["alarm_confidence"]
-        incident_id = st.session_state.get("current_incident", "N/A")
-        st.warning(f"Alarm raised! Incident ID: {incident_id} | Confidence: {confidence:.2f}")
-        if st.button("Open Human Review Dashboard"):
-            st.session_state["review_confidence"] = confidence
-            st.session_state["review_incident"] = incident_id
-            add_log("Alarm Acknowledged", "Audit Opened", confidence)
-            st.success(f"Redirected to Human Review Board → (Incident {incident_id})")
-    else:
-        st.info("No active alarms at this moment.")
-
-# ---- PAGE 3: Human Review ----
+# ---------------------------------------------------------
+# PAGE 2 – HUMAN REVIEW BOARD
+# ---------------------------------------------------------
 elif page == "Human Review Board":
     st.title("🧍 Human-in-the-Loop Decision Dashboard")
-    st.markdown("Compare the detected customer with database record and decide ethically.")
+    st.markdown("Compare the detected customer image with a database record and decide ethically.")
 
     if st.session_state.customer_image:
         col1, col2 = st.columns(2)
@@ -132,47 +146,57 @@ elif page == "Human Review Board":
     else:
         st.warning("⚠️ No uploaded image found. Please upload one on the Camera Dashboard first.")
 
-    confidence = st.session_state.get("review_confidence", random.uniform(0.75, 0.95))
-    incident_id = st.session_state.get("review_incident", generate_incident_id())
+    confidence = st.session_state.get("alarm_confidence", random.uniform(0.2, 0.99))
+    incident_id = st.session_state.get("current_incident", generate_incident_id())
     st.metric("System Confidence", f"{confidence:.2f}")
     st.info(f"Incident ID: {incident_id}")
 
-    decision = st.radio("Decision:", ["Approve Match", "Reject", "Send to Review Board"])
+    decision = st.radio("Decision:", ["Approve Match", "Reject", "Send to Review Board"], key="review_decision")
 
-    if st.button("Submit Decision"):
+    if st.button("Submit Decision", key="btn_submit_decision"):
         add_log("Human Review", decision, confidence, "Reviewer", incident_id)
         if decision == "Approve Match":
-            st.error("🚨 Match Approved – Alert triggered.")
+            st.error("🚨 Match Approved – alert triggered.")
         elif decision == "Reject":
-            st.success("✅ False Positive – Cleared and logged.")
+            st.success("✅ False Positive – cleared and logged.")
         else:
             st.warning("🕵️ Case Escalated to Review Board.")
         st.success(f"Decision recorded successfully for {incident_id}.")
 
-# ---- PAGE 4: Logs ----
+# ---------------------------------------------------------
+# PAGE 3 – SYSTEM LOGS
+# ---------------------------------------------------------
 elif page == "System Logs":
     st.title("📑 FaceABC Transparency Logs")
     if st.session_state.logs:
         df = pd.DataFrame(st.session_state.logs)
         st.dataframe(df)
+        st.download_button("⬇️ Download Logs as CSV", df.to_csv(index=False).encode("utf-8"),
+                           file_name="faceabc_logs.csv", mime="text/csv", key="download_logs")
     else:
-        st.info("No system logs yet.")
+        st.info("No logs available yet.")
 
-# ---- PAGE 5: Complaint Portal ----
+# ---------------------------------------------------------
+# PAGE 4 – USER COMPLAINT PORTAL
+# ---------------------------------------------------------
 elif page == "User Complaint Portal":
     st.title("💬 Submit Complaint – FaceABC Fairness System")
-    user = st.text_input("Your Name:")
-    contact = st.text_input("Contact Number:")
-    incident_id = st.text_input("Incident ID (e.g., INC-1001):")
-    text = st.text_area("Describe your issue:")
-    if st.button("Submit Complaint"):
+    st.markdown("If you believe you were wrongly identified, please submit a complaint below.")
+    user = st.text_input("Your Name:", key="complaint_name")
+    contact = st.text_input("Contact Number:", key="complaint_contact")
+    incident_id = st.text_input("Incident ID (e.g., INC-1001):", key="complaint_incident")
+    text = st.text_area("Describe your issue:", key="complaint_text")
+
+    if st.button("Submit Complaint", key="btn_submit_complaint"):
         if user and contact and incident_id and text:
             add_complaint(user, contact, incident_id, text)
-            st.success("✅ Complaint submitted successfully. Our review board will respond soon.")
+            st.success("✅ Complaint submitted successfully. Our ethics team will review it soon.")
         else:
             st.warning("Please fill out all fields before submitting.")
 
-# ---- PAGE 6: Complaint Review ----
+# ---------------------------------------------------------
+# PAGE 5 – COMPLAINT REVIEW BOARD
+# ---------------------------------------------------------
 elif page == "Complaint Review":
     st.title("🧾 Complaint Review Board – Staff Access Only")
     pending = [c for c in st.session_state.complaints if c["Status"] == "Pending"]
@@ -185,16 +209,15 @@ elif page == "Complaint Review":
             st.write(f"📄 Incident ID: {comp['Incident ID']}")
             st.write(f"📝 {comp['Complaint']}")
 
-            # Show both images for context
             if st.session_state.customer_image:
-                st.image(st.session_state.customer_image, caption="Customer (From Incident)")
+                st.image(st.session_state.customer_image, caption="Customer Image (From Incident)")
             st.image(db_img, caption="Database Record")
 
             action = st.radio(f"Action for Complaint #{i+1}",
                               ["None", "Confirm Error & Compensate", "Dismiss Complaint"],
-                              key=f"complaint_{i}")
+                              key=f"complaint_action_{i}")
 
-            if st.button(f"Submit Decision for #{i+1}"):
+            if st.button(f"Submit Decision for #{i+1}", key=f"btn_comp_{i}"):
                 if action == "Confirm Error & Compensate":
                     comp["Status"] = "Compensated"
                     add_log("Complaint Reviewed", "Compensation Issued", 0, "Ethics Board", comp["Incident ID"])
