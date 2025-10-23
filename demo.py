@@ -3,13 +3,14 @@ import random
 import pandas as pd
 from datetime import datetime
 import os
+import time
 
 # ---------------------------------------------------------
 # CONFIGURATION
 # ---------------------------------------------------------
 st.set_page_config(page_title="FaceABC – Ethical Facial Recognition", layout="wide")
 
-THRESHOLD = 0.85  # confidence threshold for automatic approval
+THRESHOLD = 0.85
 base_path = os.path.dirname(__file__)
 db_img = os.path.join(base_path, "static", "database.png")
 
@@ -24,6 +25,8 @@ if "incident_counter" not in st.session_state:
     st.session_state.incident_counter = 1000
 if "customer_image" not in st.session_state:
     st.session_state.customer_image = None
+if "show_alarm_popup" not in st.session_state:
+    st.session_state.show_alarm_popup = False
 if "page" not in st.session_state:
     st.session_state.page = "Camera Dashboard"
 
@@ -84,11 +87,11 @@ if page == "Camera Dashboard":
         st.session_state.customer_image = uploaded_file
         st.image(uploaded_file, caption="Live Camera Feed", use_container_width=True)
 
-        # Random confidence score to simulate detection
+        # Simulate a random AI confidence
         confidence = random.uniform(0.2, 0.99)
         st.metric("AI Confidence Score", f"{confidence:.2f}")
 
-        # Visual color bar indicator
+        # Visual confidence indicator
         if confidence >= 0.85:
             st.progress(confidence)
             st.success("✅ System confident with match.")
@@ -99,7 +102,6 @@ if page == "Camera Dashboard":
             st.progress(confidence)
             st.error("❌ Low confidence – requires immediate human review.")
 
-        # Control buttons
         col1, col2 = st.columns(2)
         with col1:
             if st.button("▶️ Run Face Check", key="btn_run_check"):
@@ -108,25 +110,46 @@ if page == "Camera Dashboard":
                 st.session_state["alarm_confidence"] = confidence
 
                 if confidence < THRESHOLD:
-                    st.warning(f"⚠️ Confidence {confidence:.2f} < {THRESHOLD}. Redirecting for human review.")
+                    st.toast("🚨 Low confidence detected! Opening Human Review alert...", icon="⚠️")
                     add_log("Uncertain Match", "Human Review Required", confidence, incident_id=incident_id)
-                    st.session_state.page = "Human Review Board"
-                    st.rerun()
+                    st.session_state.show_alarm_popup = True
                 else:
                     st.success(f"✅ Confidence {confidence:.2f} ≥ {THRESHOLD}. Logged automatically.")
                     add_log("Match Logged", "High Confidence", confidence, incident_id=incident_id)
 
         with col2:
-            if st.button("🚨 Force Audit (Testing)", key="btn_force"):
+            if st.button("🚨 Force Audit (Testing)", key="btn_force_audit"):
                 confidence = 0.45
                 incident_id = generate_incident_id()
                 st.session_state["current_incident"] = incident_id
                 st.session_state["alarm_confidence"] = confidence
                 add_log("Manual Trigger", "Forced Human Review", confidence, incident_id=incident_id)
-                st.session_state.page = "Human Review Board"
-                st.rerun()
+                st.toast("🚨 Manual alarm triggered! Showing alert window...", icon="⚠️")
+                st.session_state.show_alarm_popup = True
     else:
         st.info("Please upload a camera image to start the recognition simulation.")
+
+    # -----------------------------------------------------
+    # POP-UP SIMULATION WINDOW (ALARM ALERT)
+    # -----------------------------------------------------
+    if st.session_state.get("show_alarm_popup", False):
+        with st.container(border=True):
+            st.markdown("## 🚨 Alarm Triggered!")
+            st.write("A **low-confidence** match was detected by the system.")
+            st.write(f"Incident ID: {st.session_state.get('current_incident', 'N/A')}")
+            st.write(f"Confidence: {st.session_state.get('alarm_confidence', 0):.2f}")
+            st.warning("This case requires **immediate human review**.")
+            st.markdown("---")
+            colA, colB = st.columns(2)
+            with colA:
+                if st.button("🔍 Open Human Review Board", key="btn_popup_review"):
+                    st.session_state.page = "Human Review Board"
+                    st.session_state.show_alarm_popup = False
+                    st.rerun()
+            with colB:
+                if st.button("✖️ Dismiss", key="btn_popup_dismiss"):
+                    st.session_state.show_alarm_popup = False
+                    st.rerun()
 
 # ---------------------------------------------------------
 # PAGE 2 – HUMAN REVIEW BOARD
@@ -171,8 +194,11 @@ elif page == "System Logs":
     if st.session_state.logs:
         df = pd.DataFrame(st.session_state.logs)
         st.dataframe(df)
-        st.download_button("⬇️ Download Logs as CSV", df.to_csv(index=False).encode("utf-8"),
-                           file_name="faceabc_logs.csv", mime="text/csv", key="download_logs")
+        st.download_button("⬇️ Download Logs as CSV",
+                           df.to_csv(index=False).encode("utf-8"),
+                           file_name="faceabc_logs.csv",
+                           mime="text/csv",
+                           key="download_logs")
     else:
         st.info("No logs available yet.")
 
@@ -182,6 +208,7 @@ elif page == "System Logs":
 elif page == "User Complaint Portal":
     st.title("💬 Submit Complaint – FaceABC Fairness System")
     st.markdown("If you believe you were wrongly identified, please submit a complaint below.")
+
     user = st.text_input("Your Name:", key="complaint_name")
     contact = st.text_input("Contact Number:", key="complaint_contact")
     incident_id = st.text_input("Incident ID (e.g., INC-1001):", key="complaint_incident")
